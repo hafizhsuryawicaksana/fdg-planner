@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalkulator Produksi 18F-FDG</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 20px; background-color: #f4f7f6; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        h1 { text-align: center; color: #333; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .form-group { display: flex; flex-direction: column; }
+        label { margin-bottom: 5px; font-weight: bold; color: #555; }
+        input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; }
+        button { grid-column: 1 / -1; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 1.1em; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        
+        /* -- STYLE BARU KITA MULAI DARI SINI -- */
+        #result { 
+            margin-top: 20px; 
+            border: 1px solid #b3e0ff; 
+            border-radius: 4px;
+            overflow: hidden; /* Agar box-shadow rapi */
+        }
+        
+        .target-box {
+            background-color: #007bff;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .target-box h3 {
+            margin: 0;
+            font-size: 1.2em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0.8;
+        }
+        .target-box p {
+            margin: 5px 0 0;
+            font-size: 2.8em;
+            font-weight: bold;
+        }
+
+        .step-details {
+            padding: 15px;
+            background: #f9f9f9;
+        }
+        .step-details h4 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 5px;
+        }
+        .step-details p {
+            margin: 5px 0;
+            font-size: 0.9em;
+            display: flex;
+            justify-content: space-between;
+        }
+        .step-details p span { font-weight: bold; }
+
+        /* Untuk JSON mentah, kita sembunyikan saja */
+        #result-raw { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Kalkulator Perencanaan Produksi 18F-FDG</h1>
+        <p style="text-align: center;">
+    <a href="/history" target="_blank">Lihat Riwayat Produksi</a>
+</p>
+        <form id="calc-form">
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label for="injection_time">Waktu Injeksi Pasien (HH:MM)</label>
+                    <input type="time" id="injection_time" value="11:00" required>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label for="final_activity">Aktivitas di RS (mCi)</label>
+                    <input type="number" id="final_activity" value="10" required>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label for="travel_time">Waktu Tempuh (menit)</label>
+                    <input type="number" id="travel_time" value="45" required>
+                </div>
+                <div class="form-group">
+                    <label for="t_synthesis">Waktu Sintesis (min)</label>
+                    <input type="number" id="t_synthesis" value="30">
+                </div>
+                <div class="form-group">
+                    <label for="yield_synthesis">Yield Sintesis (mis: 0.5)</label>
+                    <input type="number" id="yield_synthesis" value="0.5" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label for="t_qc">Waktu QC (min)</label>
+                    <input type="number" id="t_qc" value="25">
+                </div>
+                <div class="form-group">
+                    <label for="t_dispensing">Waktu Dispensing (min)</label>
+                    <input type="number" id="t_dispensing" value="15">
+                </div>
+            </div>
+            <button type="submit">HITUNG TARGET EOB</button>
+        </form>
+
+<div id="result" style="display: none;">
+
+    <div class="target-box" id="result-target-box">
+        <h3>Target Aktivitas EOB</h3>
+        <p id="result-target-eob">... mCi</p>
+    </div>
+
+    <div class="step-details" id="result-schedule-box">
+        <h4>Rincian Jadwal (Deadline):</h4>
+        <p>Waktu Injeksi: <span id="sched-injection">...</span></p>
+        <p>Pengiriman (Latest): <span id="sched-dispatch">...</span></p>
+        <p>Selesai QC (Latest): <span id="sched-qc">...</span></p>
+        <p>Selesai Sintesis (Latest): <span id="sched-eos">...</span></p>
+        <p style="font-weight:bold; color: #007bff; border-top: 1px solid #eee; padding-top: 5px;">
+            EOB (Latest): <span id="sched-eob">...</span>
+        </p>
+    </div>
+
+    <div class="step-details" id="result-activity-box">
+        <h4>Rincian Perhitungan Aktivitas:</h4>
+        <p>Aktivitas Selesai Sintesis (EOS): <span id="act-eos">... mCi</span></p>
+        <p>Aktivitas Selesai QC: <span id="act-qc">... mCi</span></p>
+        <p>Aktivitas Siap Kirim (Dispatch): <span id="act-dispatch">... mCi</span></p>
+    </div>
+
+    <pre id="result-raw"></pre>
+</div>
+
+<script>
+    document.getElementById('calc-form').addEventListener('submit', function(event) {
+        event.preventDefault();
+
+        // 1. Ambil nilai (dengan tambahan 'injection_time')
+        const injection_time = document.getElementById('injection_time').value; // BARU
+        const final_activity = document.getElementById('final_activity').value;
+        const travel_time = document.getElementById('travel_time').value;
+        const t_synthesis = document.getElementById('t_synthesis').value;
+        const yield_synthesis = document.getElementById('yield_synthesis').value;
+        const t_qc = document.getElementById('t_qc').value;
+        const t_dispensing = document.getElementById('t_dispensing').value;
+
+        // 2. Susun URL (dengan tambahan 'injection_time')
+        const api_url = `/calculate_production_plan?final_activity=${final_activity}&injection_time=${injection_time}&travel_time=${travel_time}&t_synthesis=${t_synthesis}&yield_synthesis=${yield_synthesis}&t_qc=${t_qc}&t_dispensing=${t_dispensing}`;
+
+        // 3. Tampilkan "Loading"
+        const resultDiv = document.getElementById('result');
+        resultDiv.style.display = 'block';
+        document.getElementById('result-target-eob').innerText = 'Menghitung...';
+        document.getElementById('result-target-box').style.backgroundColor = '#555';
+        document.getElementById('result-schedule-box').style.display = 'none';
+        document.getElementById('result-activity-box').style.display = 'none';
+
+        // 4. Panggil API
+        fetch(api_url)
+            .then(response => response.json())
+            .then(data => {
+                // 5. LOGIKA PARSING JSON BARU
+                if (data.error) {
+                    document.getElementById('result-target-box').style.backgroundColor = '#d9534f';
+                    document.getElementById('result-target-eob').innerText = `Error: ${data.error}`;
+                    document.getElementById('result-schedule-box').style.display = 'none';
+                    document.getElementById('result-activity-box').style.display = 'none';
+                } else {
+                    // Tampilkan hasil jika sukses
+                    document.getElementById('result-target-box').style.backgroundColor = '#007bff';
+                    document.getElementById('result-schedule-box').style.display = 'block';
+                    document.getElementById('result-activity-box').style.display = 'block';
+
+                    // Isi Target Aktivitas
+                    document.getElementById('result-target-eob').innerText = data.RINGKASAN_TARGET_PRODUKSI.TARGET_EOB;
+
+                    // Isi Jadwal
+                    document.getElementById('sched-injection').innerText = data.RINGKASAN_JADWAL.WAKTU_INJEKSI;
+                    document.getElementById('sched-dispatch').innerText = data.RINGKASAN_JADWAL.DEADLINE_PENGIRIMAN;
+                    document.getElementById('sched-qc').innerText = data.RINGKASAN_JADWAL.DEADLINE_SELESAI_QC;
+                    document.getElementById('sched-eos').innerText = data.RINGKASAN_JADWAL.DEADLINE_SELESAI_SINTESIS_EOS;
+                    document.getElementById('sched-eob').innerText = data.RINGKASAN_JADWAL.DEADLINE_EOB;
+
+                    // Isi Rincian Aktivitas
+                    document.getElementById('act-eos').innerText = `${data.rincian_aktivitas.A_SELESAI_SINTESIS_EOS} mCi`;
+                    document.getElementById('act-qc').innerText = `${data.rincian_aktivitas.A_SELESAI_QC} mCi`;
+                    document.getElementById('act-dispatch').innerText = `${data.rincian_aktivitas.A_SAAT_PENGIRIMAN} mCi`;
+
+                    document.getElementById('result-raw').innerText = JSON.stringify(data, null, 2);
+                }
+            })
+            .catch(error => {
+                document.getElementById('result-target-box').style.backgroundColor = '#d9534f';
+                document.getElementById('result-target-eob').innerText = `Error Jaringan: ${error}`;
+            });
+    });
+</script>
+
+</body>
+</html>
